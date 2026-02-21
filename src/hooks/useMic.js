@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { startMicListening, stopMicListening } from '../utils/micUtils'
 
 /**
@@ -10,13 +10,18 @@ export function useMic(onNote, songComplete) {
   const [micActive, setMicActive] = useState(false)
   const [micError, setMicError] = useState(null)
 
+  // Always keep a ref to the latest onNote so the mic loop never holds a stale closure
+  const onNoteRef = useRef(onNote)
+  onNoteRef.current = onNote
+
   const toggleMic = useCallback(async () => {
     if (micActive) {
       stopMicListening()
       setMicActive(false)
       setMicError(null)
     } else {
-      const err = await startMicListening(onNote)
+      // Stable wrapper — delegates to whatever onNote is current at call time
+      const err = await startMicListening((noteName, octave) => onNoteRef.current(noteName, octave))
       if (err) {
         setMicError(err)
       } else {
@@ -24,7 +29,7 @@ export function useMic(onNote, songComplete) {
         setMicError(null)
       }
     }
-  }, [micActive, onNote])
+  }, [micActive])
 
   // Stop when song ends
   useEffect(() => {
