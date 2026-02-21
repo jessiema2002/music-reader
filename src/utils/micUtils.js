@@ -1,10 +1,9 @@
 /**
- * Microphone pitch detection using autocorrelation.
- * No external dependencies — Web Audio API only.
- *
+ * Microphone pitch detection using the YIN algorithm via pitchfinder.
  * Only fires for natural notes (A B C D E F G) — sharps/flats are skipped
  * so the result always matches the on-screen piano keys.
  */
+import { YIN } from 'pitchfinder'
 
 let audioCtx = null
 let analyser = null
@@ -33,49 +32,11 @@ function freqToNote(freq) {
   return { name, octave }
 }
 
-/**
- * Autocorrelation pitch detector.
- * Returns the fundamental frequency in Hz, or -1 if signal is too weak / unclear / noisy.
- */
-function detectPitch(buf, sampleRate) {
-  const SIZE = buf.length
-  const HALF = Math.floor(SIZE / 2)
-
-  // Signal strength check — ignore silence / background noise
-  let rms = 0
-  for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i]
-  rms = Math.sqrt(rms / SIZE)
-  if (rms < 0.025) return -1   // raised from 0.015 — filters more ambient noise
-
-  // Build autocorrelation array
-  const c = new Float32Array(HALF)
-  for (let i = 0; i < HALF; i++) {
-    let s = 0
-    for (let j = 0; j < HALF; j++) s += buf[j] * buf[j + i]
-    c[i] = s
-  }
-
-  // Skip the initial peak (lag=0), descend to first valley, then find next peak
-  let d = 0
-  while (d < HALF - 1 && c[d] > c[d + 1]) d++
-  let maxVal = -Infinity, maxPos = -1
-  for (let i = d; i < HALF; i++) {
-    if (c[i] > maxVal) { maxVal = c[i]; maxPos = i }
-  }
-  if (maxPos < 2) return -1
-
-  // Clarity check — ratio of detected peak to zero-lag power.
-  // Pure tones (piano, voice singing) score > 0.9; speech/noise/claps score low.
-  // This is the strongest filter against environmental noise.
-  const clarity = c[0] > 0 ? maxVal / c[0] : 0
-  if (clarity < 0.9) return -1
-
-  // Parabolic interpolation for sub-sample period accuracy
-  const x1 = c[maxPos - 1], x2 = c[maxPos], x3 = c[maxPos + 1]
-  const a = (x1 + x3 - 2 * x2) / 2
-  const b = (x3 - x1) / 2
-  const T0 = a ? maxPos - b / (2 * a) : maxPos
-  return sampleRate / T0
+/** RMS energy check — skip the YIN call entirely on silent frames for performance. */
+function getRms(buf) {
+  let sum = 0
+  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+  return Math.sqrt(sum / buf.length)
 }
 
 /**
@@ -94,10 +55,16 @@ export async function startMicListening(onNote, onHeard) {
     source.connect(analyser)
 
     const buf = new Float32Array(analyser.fftSize)
+    // YIN detector — created once per audio context so sampleRate is baked in.
+    // threshold: cumulative mean normalised difference threshold (lower = stricter)
+    const yinDetect = YIN({ sampleRate: audioCtx.sampleRate, threshold: 0.1 })
 
     function loop() {
       analyser.getFloatTimeDomainData(buf)
-      const freq = detectPitch(buf, audioCtx.sampleRate)
+      // Skip YIN on silent frames for performance; null return means no pitch found
+      const rms = getRms(buf)
+      const rawFreq = rms >= 0.015 ? yinDetect(buf) : null
+      const freq = rawFreq ?? -1
       const note = freq > 0 ? freqToNote(freq) : null
       const candidateName = note ? note.name : null
 
