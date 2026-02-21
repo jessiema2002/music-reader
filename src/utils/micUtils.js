@@ -11,9 +11,12 @@ let analyser = null
 let source = null
 let stream = null
 let rafId = null
-let lastNoteName = null
-let lastNoteTime = 0
-const COOLDOWN_MS = 700   // minimum ms between two note triggers
+let lastFiredNote = null
+let lastFiredTime = 0
+const COOLDOWN_MS = 300     // minimum ms before the same note can fire again
+const STABLE_FRAMES = 3     // consecutive frames a note must hold before firing
+let stableNote = null
+let stableCount = 0
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -85,12 +88,22 @@ export async function startMicListening(onNote) {
     function loop() {
       analyser.getFloatTimeDomainData(buf)
       const freq = detectPitch(buf, audioCtx.sampleRate)
-      if (freq > 0) {
-        const note = freqToNote(freq)
+      const note = freq > 0 ? freqToNote(freq) : null
+      const candidateName = note ? note.name : null
+
+      if (candidateName && candidateName === stableNote) {
+        stableCount++
+      } else {
+        stableNote = candidateName
+        stableCount = 1
+      }
+
+      if (stableCount === STABLE_FRAMES && stableNote) {
         const now = Date.now()
-        if (note && now - lastNoteTime > COOLDOWN_MS) {
-          lastNoteName = note.name
-          lastNoteTime = now
+        // Allow any note that is different from the last fired, or same note after cooldown
+        if (stableNote !== lastFiredNote || now - lastFiredTime > COOLDOWN_MS) {
+          lastFiredNote = stableNote
+          lastFiredTime = now
           onNote(note.name, note.octave)
         }
       }
@@ -112,6 +125,8 @@ export function stopMicListening() {
   analyser = null
   if (audioCtx) { audioCtx.close(); audioCtx = null }
   if (stream)  { stream.getTracks().forEach(t => t.stop()); stream = null }
-  lastNoteName = null
-  lastNoteTime = 0
+  lastFiredNote = null
+  lastFiredTime = 0
+  stableNote = null
+  stableCount = 0
 }
