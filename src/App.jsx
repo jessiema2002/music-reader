@@ -15,7 +15,7 @@ export default function App() {
   const { records, addRecord } = useHistory()
   const micActiveRef = useRef(false)
   const game = useSongGame(addRecord, micActiveRef)
-  const { micActive, micError, toggleMic, lastHeardNote } = useMic(game.handleAnswer, game.songComplete)
+  const { micActive, micError, toggleMic, lastHeardNote, micMode, setMicMode } = useMic(game.handleAnswer, game.songComplete)
   micActiveRef.current = micActive
 
   return (
@@ -85,6 +85,8 @@ export default function App() {
               micError={micError}
               toggleMic={toggleMic}
               lastHeardNote={lastHeardNote}
+              micMode={micMode}
+              setMicMode={setMicMode}
             />
           )}
         </main>

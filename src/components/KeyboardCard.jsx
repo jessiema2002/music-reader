@@ -1,7 +1,7 @@
 import React from 'react'
 import PianoKeyboard from './PianoKeyboard'
 
-export default function KeyboardCard({ onAnswer, pianoFeedback, clef, micActive, micError, toggleMic, lastHeardNote }) {
+export default function KeyboardCard({ onAnswer, pianoFeedback, clef, micActive, micError, toggleMic, lastHeardNote, micMode, setMicMode }) {
   const pianoOctaves    = clef === 'bass' ? [2, 3] : [4, 5]
   const correctPianoKey = pianoFeedback?.isCorrect ? { note: pianoFeedback.note } : null
   const incorrectPianoKey = pianoFeedback && !pianoFeedback.isCorrect ? { note: pianoFeedback.note } : null
@@ -10,13 +10,26 @@ export default function KeyboardCard({ onAnswer, pianoFeedback, clef, micActive,
     <div className="card keyboard-card">
       <div className="keyboard-card-header">
         <span className="card-label">Click a key · press A–G · or play your piano</span>
-        <button
-          className={`mic-btn${micActive ? ' mic-btn-active' : ''}`}
-          onClick={toggleMic}
-          title={micActive ? 'Stop microphone' : 'Use microphone / real piano'}
-        >
-          {micActive ? '🎙️ Listening…' : '🎙️ Use Mic'}
-        </button>
+        <div className="mic-controls">
+          <select
+            className="mic-mode-select"
+            value={micMode}
+            onChange={(e) => setMicMode(e.target.value)}
+            disabled={micActive}
+            title={micActive ? 'Stop microphone to change sensitivity' : 'Microphone sensitivity profile'}
+          >
+            <option value="strict">Strict</option>
+            <option value="normal">Normal</option>
+            <option value="piano">Piano</option>
+          </select>
+          <button
+            className={`mic-btn${micActive ? ' mic-btn-active' : ''}`}
+            onClick={toggleMic}
+            title={micActive ? 'Stop microphone' : 'Use microphone / real piano'}
+          >
+            {micActive ? '🎙️ Listening…' : '🎙️ Use Mic'}
+          </button>
+        </div>
       </div>
       {micError && <div className="mic-error">{micError}</div>}
       {micActive && lastHeardNote && (

@@ -5,6 +5,12 @@
  */
 import { YIN } from 'pitchfinder'
 
+const MIC_PRESETS = {
+  strict: { fftSize: 4096, yinThreshold: 0.1, rmsThreshold: 0.02, snapTolerance: 0.35 },
+  normal: { fftSize: 4096, yinThreshold: 0.2, rmsThreshold: 0.015, snapTolerance: 0.45 },
+  piano:  { fftSize: 8192, yinThreshold: 0.25, rmsThreshold: 0.01, snapTolerance: 0.5 },
+}
+
 let audioCtx = null
 let analyser = null
 let source = null
@@ -22,13 +28,31 @@ const DEBUG = false         // Set to true to see detection logs in console
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-/** Convert a frequency (Hz) to { name, octave }, or null if out of range / a sharp. */
-function freqToNote(freq) {
+/**
+ * Convert frequency to nearest natural note (A-G), tolerant to slight sharp/flat drift.
+ * This helps with real piano overtones where detectors may land on nearby accidentals.
+ */
+function freqToNote(freq, snapTolerance) {
   if (freq < 27 || freq > 4200) return null
-  const midi = Math.round(12 * Math.log2(freq / 440) + 69)
-  const name = NOTE_NAMES[((midi % 12) + 12) % 12]
-  if (name.includes('#')) return null   // skip accidentals
-  const octave = Math.floor(midi / 12) - 1
+  const midiFloat = 12 * Math.log2(freq / 440) + 69
+
+  let bestMidi = null
+  let bestDist = Infinity
+  const center = Math.round(midiFloat)
+
+  for (let midi = center - 2; midi <= center + 2; midi++) {
+    const name = NOTE_NAMES[((midi % 12) + 12) % 12]
+    if (name.includes('#')) continue
+    const dist = Math.abs(midiFloat - midi)
+    if (dist < bestDist) {
+      bestDist = dist
+      bestMidi = midi
+    }
+  }
+
+  if (bestMidi === null || bestDist > snapTolerance) return null
+  const name = NOTE_NAMES[((bestMidi % 12) + 12) % 12]
+  const octave = Math.floor(bestMidi / 12) - 1
   return { name, octave }
 }
 
@@ -43,29 +67,33 @@ function getRms(buf) {
  * Start microphone listening.
  * @param {(noteName: string, octave: number) => void} onNote  called when a stable note is detected
  * @param {(noteName: string, freq: number) => void} onHeard  called every time a note is heard (for debugging)
+ * @param {{ mode?: 'strict'|'normal'|'piano' }} options detection profile
  * @returns {Promise<string|null>}  null on success, error message string on failure
  */
-export async function startMicListening(onNote, onHeard) {
+export async function startMicListening(onNote, onHeard, options = {}) {
   try {
+    const mode = options.mode ?? 'normal'
+    const preset = MIC_PRESETS[mode] ?? MIC_PRESETS.normal
+
     stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     audioCtx = new (window.AudioContext || window.webkitAudioContext)()
     analyser = audioCtx.createAnalyser()
-    analyser.fftSize = 2048
+    analyser.fftSize = preset.fftSize
     source = audioCtx.createMediaStreamSource(stream)
     source.connect(analyser)
 
     const buf = new Float32Array(analyser.fftSize)
     // YIN detector — created once per audio context so sampleRate is baked in.
     // threshold: cumulative mean normalised difference threshold (lower = stricter)
-    const yinDetect = YIN({ sampleRate: audioCtx.sampleRate, threshold: 0.1 })
+    const yinDetect = YIN({ sampleRate: audioCtx.sampleRate, threshold: preset.yinThreshold })
 
     function loop() {
       analyser.getFloatTimeDomainData(buf)
       // Skip YIN on silent frames for performance; null return means no pitch found
       const rms = getRms(buf)
-      const rawFreq = rms >= 0.015 ? yinDetect(buf) : null
+      const rawFreq = rms >= preset.rmsThreshold ? yinDetect(buf) : null
       const freq = rawFreq ?? -1
-      const note = freq > 0 ? freqToNote(freq) : null
+      const note = freq > 0 ? freqToNote(freq, preset.snapTolerance) : null
       const candidateName = note ? note.name : null
 
       if (DEBUG && freq > 0) {

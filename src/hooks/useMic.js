@@ -10,6 +10,7 @@ export function useMic(onNote, songComplete) {
   const [micActive, setMicActive] = useState(false)
   const [micError, setMicError] = useState(null)
   const [lastHeardNote, setLastHeardNote] = useState(null)
+  const [micMode, setMicMode] = useState('normal')
 
   // Always keep a ref to the latest onNote so the mic loop never holds a stale closure
   const onNoteRef = useRef(onNote)
@@ -25,7 +26,8 @@ export function useMic(onNote, songComplete) {
       // Stable wrapper — delegates to whatever onNote is current at call time
       const err = await startMicListening(
         (noteName, octave) => onNoteRef.current(noteName, octave),
-        (noteName, freq) => setLastHeardNote({ note: noteName, freq })
+        (noteName, freq) => setLastHeardNote({ note: noteName, freq }),
+        { mode: micMode }
       )
       if (err) {
         setMicError(err)
@@ -34,7 +36,7 @@ export function useMic(onNote, songComplete) {
         setMicError(null)
       }
     }
-  }, [micActive])
+  }, [micActive, micMode])
 
   // Stop when song ends
   useEffect(() => {
@@ -47,5 +49,5 @@ export function useMic(onNote, songComplete) {
   // Cleanup on unmount
   useEffect(() => () => stopMicListening(), [])
 
-  return { micActive, micError, toggleMic, lastHeardNote }
+  return { micActive, micError, toggleMic, lastHeardNote, micMode, setMicMode }
 }
