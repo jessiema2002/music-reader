@@ -88,7 +88,7 @@ export async function startMicListening(onNote) {
       if (freq > 0) {
         const note = freqToNote(freq)
         const now = Date.now()
-        if (note && (note.name !== lastNoteName || now - lastNoteTime > COOLDOWN_MS)) {
+        if (note && now - lastNoteTime > COOLDOWN_MS) {
           lastNoteName = note.name
           lastNoteTime = now
           onNote(note.name, note.octave)
