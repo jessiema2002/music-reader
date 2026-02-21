@@ -8,13 +8,13 @@ import SongResultCard from './components/SongResultCard'
 import KeyboardCard from './components/KeyboardCard'
 import { useSongGame } from './hooks/useSongGame'
 import { useMic } from './hooks/useMic'
-import { loadRecords } from './utils/recordUtils'
+import { useHistory } from './hooks/useHistory'
 import { SONGS_BY_CLEF } from './data/songs'
 
 export default function App() {
-  const game = useSongGame()
+  const { records, addRecord } = useHistory()
+  const game = useSongGame(addRecord)
   const { micActive, micError, toggleMic } = useMic(game.handleAnswer, game.songComplete)
-  const [records] = useState(() => loadRecords())
 
   return (
     <div className="app">

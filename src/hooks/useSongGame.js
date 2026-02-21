@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { generateSong, checkAnswer } from '../utils/noteUtils'
-import { saveRecord } from '../utils/recordUtils'
 import { playNote } from '../utils/audioUtils'
 
 const WINDOW = 8
@@ -8,8 +7,9 @@ const WINDOW = 8
 /**
  * Encapsulates all song-game state and logic.
  * Returns everything App needs to render and respond to user input.
+ * @param {(record: object) => void} onSongComplete  optional callback to save history
  */
-export function useSongGame() {
+export function useSongGame(onSongComplete) {
   // ─── Song / answer state ──────────────────────────────────────────────────
   const [song, setSong] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -85,7 +85,15 @@ export function useSongGame() {
       setFinalMs(ms)
       setElapsedMs(ms)
       const score = newResults.filter((r) => r === 'correct').length
-      saveRecord({ elapsedMs: ms, score, total: song.length, songLength: song.length, title: selectedSong?.title || 'Random' })
+      
+      onSongComplete?.({
+        elapsedMs: ms,
+        score,
+        total: song.length,
+        songLength: song.length,
+        title: selectedSong?.title || 'Random'
+      })
+
       setSongComplete(true)
       return score
     }
@@ -113,7 +121,7 @@ export function useSongGame() {
       setPianoFeedback({ note: noteName, isCorrect: false })
       setHasWrongAttempt(true)
       setFeedbackMsg({ text: 'Not quite — try again!', type: 'incorrect' })
-      setTimeout(() => setPianoFeedback(null), 600)
+      setTimeout(() => setPianoFeedback(v => v?.note === noteName ? null : v), 600)
 
     } else {
       const newResults = [...results]
@@ -129,7 +137,7 @@ export function useSongGame() {
       if (next >= song.length) finishSong(newResults)
       else setCurrentIndex(next)
     }
-  }, [songComplete, song, currentIndex, results, hasWrongAttempt, startTime, selectedSong])
+  }, [songComplete, song, currentIndex, results, hasWrongAttempt, startTime, selectedSong, onSongComplete])
 
   // ─── Keyboard listener ────────────────────────────────────────────────────
   useEffect(() => {
