@@ -1,2 +1,14 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
 # Local Netlify folder
 .netlify
+
+# macOS
+.DS_Store
+
+# Vite
+*.local
