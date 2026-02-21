@@ -13,10 +13,13 @@ let stream = null
 let rafId = null
 let lastFiredNote = null
 let lastFiredTime = 0
-const COOLDOWN_MS = 300     // minimum ms before the same note can fire again
-const STABLE_FRAMES = 3     // consecutive frames a note must hold before firing
-let stableNote = null
+let suppressUntil = 0        // timestamp until which all mic detection is suppressed
+const SAME_NOTE_COOLDOWN_MS = 1500  // same note won't fire again for 1.5s (covers piano sustain)
+const ANY_NOTE_COOLDOWN_MS = 100    // any note blocked for 100ms after a fire (handles attack transients)
+const STABLE_FRAMES = 3             // consecutive frames a note must hold before firing (~50ms at 60fps)
+let stableNote = null       // stores the full note object { name, octave }
 let stableCount = 0
+const DEBUG = false         // Set to true to see detection logs in console
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -32,7 +35,7 @@ function freqToNote(freq) {
 
 /**
  * Autocorrelation pitch detector.
- * Returns the fundamental frequency in Hz, or -1 if signal is too weak / unclear.
+ * Returns the fundamental frequency in Hz, or -1 if signal is too weak / unclear / noisy.
  */
 function detectPitch(buf, sampleRate) {
   const SIZE = buf.length
@@ -42,7 +45,7 @@ function detectPitch(buf, sampleRate) {
   let rms = 0
   for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i]
   rms = Math.sqrt(rms / SIZE)
-  if (rms < 0.015) return -1
+  if (rms < 0.025) return -1   // raised from 0.015 — filters more ambient noise
 
   // Build autocorrelation array
   const c = new Float32Array(HALF)
@@ -61,6 +64,12 @@ function detectPitch(buf, sampleRate) {
   }
   if (maxPos < 2) return -1
 
+  // Clarity check — ratio of detected peak to zero-lag power.
+  // Pure tones (piano, voice singing) score > 0.9; speech/noise/claps score low.
+  // This is the strongest filter against environmental noise.
+  const clarity = c[0] > 0 ? maxVal / c[0] : 0
+  if (clarity < 0.9) return -1
+
   // Parabolic interpolation for sub-sample period accuracy
   const x1 = c[maxPos - 1], x2 = c[maxPos], x3 = c[maxPos + 1]
   const a = (x1 + x3 - 2 * x2) / 2
@@ -72,9 +81,10 @@ function detectPitch(buf, sampleRate) {
 /**
  * Start microphone listening.
  * @param {(noteName: string, octave: number) => void} onNote  called when a stable note is detected
+ * @param {(noteName: string, freq: number) => void} onHeard  called every time a note is heard (for debugging)
  * @returns {Promise<string|null>}  null on success, error message string on failure
  */
-export async function startMicListening(onNote) {
+export async function startMicListening(onNote, onHeard) {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     audioCtx = new (window.AudioContext || window.webkitAudioContext)()
@@ -91,20 +101,47 @@ export async function startMicListening(onNote) {
       const note = freq > 0 ? freqToNote(freq) : null
       const candidateName = note ? note.name : null
 
-      if (candidateName && candidateName === stableNote) {
-        stableCount++
-      } else {
-        stableNote = candidateName
-        stableCount = 1
+      if (DEBUG && freq > 0) {
+        console.log(`[MIC] freq=${freq.toFixed(1)}Hz, note=${candidateName || 'null'}, stable=${stableNote?.name}:${stableCount}`)
       }
 
-      if (stableCount === STABLE_FRAMES && stableNote) {
-        const now = Date.now()
-        // Allow any note that is different from the last fired, or same note after cooldown
-        if (stableNote !== lastFiredNote || now - lastFiredTime > COOLDOWN_MS) {
-          lastFiredNote = stableNote
+      // Report what we're hearing to the UI
+      if (onHeard && candidateName) {
+        onHeard(candidateName, freq)
+      }
+
+      if (note && stableNote && note.name === stableNote.name) {
+        stableCount++
+      } else if (note) {
+        // Only reset if we detect a different note, not on silence
+        stableNote = note
+        stableCount = 1
+      }
+      // If note is null (silence/sharp), don't reset - just wait
+
+      const now = Date.now()
+
+      // Hard-suppressed: mic is muted externally (e.g. while speaker audio plays back)
+      if (now < suppressUntil) {
+        stableNote = null
+        stableCount = 0
+        rafId = requestAnimationFrame(loop)
+        return
+      }
+
+      if (stableCount >= STABLE_FRAMES && stableNote) {
+        const timeSinceLastFire = now - lastFiredTime
+        const sameNote = stableNote.name === lastFiredNote
+        
+        if (timeSinceLastFire < ANY_NOTE_COOLDOWN_MS) {
+          // Brief post-fire block — handles pitch wobble on the attack of the next note
+        } else if (!sameNote || timeSinceLastFire > SAME_NOTE_COOLDOWN_MS) {
+          if (DEBUG) console.log(`[MIC] 🎵 FIRE: ${stableNote.name}`)
+          lastFiredNote = stableNote.name
           lastFiredTime = now
-          onNote(note.name, note.octave)
+          onNote(stableNote.name, stableNote.octave)
+          stableNote = null
+          stableCount = 0
         }
       }
       rafId = requestAnimationFrame(loop)
@@ -118,6 +155,14 @@ export async function startMicListening(onNote) {
   }
 }
 
+/**
+ * Temporarily suppress mic detection (e.g. while speaker audio is playing).
+ * @param {number} durationMs  how long to suppress
+ */
+export function suppressMicListening(durationMs) {
+  suppressUntil = Date.now() + durationMs
+}
+
 /** Stop microphone listening and release all resources. */
 export function stopMicListening() {
   if (rafId)   { cancelAnimationFrame(rafId); rafId = null }
@@ -127,6 +172,7 @@ export function stopMicListening() {
   if (stream)  { stream.getTracks().forEach(t => t.stop()); stream = null }
   lastFiredNote = null
   lastFiredTime = 0
+  suppressUntil = 0
   stableNote = null
   stableCount = 0
 }

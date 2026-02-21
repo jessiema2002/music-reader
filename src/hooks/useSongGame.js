@@ -8,8 +8,9 @@ const WINDOW = 8
  * Encapsulates all song-game state and logic.
  * Returns everything App needs to render and respond to user input.
  * @param {(record: object) => void} onSongComplete  optional callback to save history
+ * @param {{ current: boolean }} micActiveRef  ref to whether mic is currently active
  */
-export function useSongGame(onSongComplete) {
+export function useSongGame(onSongComplete, micActiveRef) {
   // ─── Song / answer state ──────────────────────────────────────────────────
   const [song, setSong] = useState([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -68,7 +69,8 @@ export function useSongGame(onSongComplete) {
     if (songComplete || !song.length || currentIndex >= song.length) return
 
     const target = song[currentIndex]
-    playNote(noteName, target.octave)
+    // Skip audio playback when mic is active — the real piano already makes sound
+    if (!micActiveRef?.current) playNote(noteName, target.octave)
     const isCorrect = checkAnswer(target, noteName)
 
     // Start timer on first answer

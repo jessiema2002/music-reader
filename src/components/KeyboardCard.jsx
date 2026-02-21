@@ -1,7 +1,7 @@
 import React from 'react'
 import PianoKeyboard from './PianoKeyboard'
 
-export default function KeyboardCard({ onAnswer, pianoFeedback, clef, micActive, micError, toggleMic }) {
+export default function KeyboardCard({ onAnswer, pianoFeedback, clef, micActive, micError, toggleMic, lastHeardNote }) {
   const pianoOctaves    = clef === 'bass' ? [2, 3] : [4, 5]
   const correctPianoKey = pianoFeedback?.isCorrect ? { note: pianoFeedback.note } : null
   const incorrectPianoKey = pianoFeedback && !pianoFeedback.isCorrect ? { note: pianoFeedback.note } : null
@@ -19,6 +19,19 @@ export default function KeyboardCard({ onAnswer, pianoFeedback, clef, micActive,
         </button>
       </div>
       {micError && <div className="mic-error">{micError}</div>}
+      {micActive && lastHeardNote && (
+        <div className="mic-debug" style={{ 
+          padding: '8px 12px', 
+          background: '#f0f7ff', 
+          border: '1px solid #4a90e2',
+          borderRadius: '6px',
+          marginBottom: '12px',
+          fontSize: '14px',
+          color: '#333'
+        }}>
+          🎵 Hearing: <strong>{lastHeardNote.note}</strong> ({lastHeardNote.freq.toFixed(1)} Hz)
+        </div>
+      )}
       <PianoKeyboard
         onKeyPress={onAnswer}
         correctKey={correctPianoKey}

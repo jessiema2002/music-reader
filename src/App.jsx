@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef } from 'react'
 import './App.css'
 import ScoreBoard from './components/ScoreBoard'
 import HistoryPanel from './components/HistoryPanel'
@@ -13,8 +13,10 @@ import { SONGS_BY_CLEF } from './data/songs'
 
 export default function App() {
   const { records, addRecord } = useHistory()
-  const game = useSongGame(addRecord)
-  const { micActive, micError, toggleMic } = useMic(game.handleAnswer, game.songComplete)
+  const micActiveRef = useRef(false)
+  const game = useSongGame(addRecord, micActiveRef)
+  const { micActive, micError, toggleMic, lastHeardNote } = useMic(game.handleAnswer, game.songComplete)
+  micActiveRef.current = micActive
 
   return (
     <div className="app">
@@ -82,6 +84,7 @@ export default function App() {
               micActive={micActive}
               micError={micError}
               toggleMic={toggleMic}
+              lastHeardNote={lastHeardNote}
             />
           )}
         </main>
