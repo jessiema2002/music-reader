@@ -1,0 +1,82 @@
+version: 1
+project:
+  name: music-reader
+  stack:
+    - react-18
+    - vite-5
+    - plain-javascript
+    - vexflow
+  summary: >-
+    Music sight-reading trainer with note detection from keyboard, on-screen piano,
+    and microphone (pitchfinder + Web Audio API).
+
+copilot:
+  goals:
+    - Keep changes minimal and focused.
+    - Preserve current UX and game behavior unless explicitly requested.
+    - Prefer reliability for microphone detection over adding new features.
+
+  context_compaction:
+    rules:
+      - When context is long, summarize first before proposing changes.
+      - Keep summaries to the smallest useful set of facts for the active task.
+      - Prioritize current bug state, recent edits, affected files, and pending user intent.
+      - Omit stale discussion and unrelated implementation details.
+      - Prefer compact bullets over long narrative paragraphs.
+      - Before editing, restate assumptions in 1-3 lines when requirements are ambiguous.
+
+  token_efficiency:
+    rules:
+      - Default to concise responses unless the user asks for deep detail.
+      - Avoid repeating unchanged plans, summaries, or file content across turns.
+      - Prefer one focused edit over multiple speculative edits.
+      - Batch independent read-only checks together when possible.
+      - Use the minimum number of tool calls needed to complete the task safely.
+      - Report only meaningful deltas after each change.
+
+  code_style:
+    language: javascript
+    framework: react
+    rules:
+      - Use functional React components and hooks.
+      - Match existing formatting style in nearby files.
+      - Avoid one-letter variable names.
+      - Do not add inline comments unless requested.
+      - Do not introduce TypeScript unless asked.
+
+  architecture:
+    rules:
+      - Keep game state logic in src/hooks/useSongGame.js.
+      - Keep microphone lifecycle/state in src/hooks/useMic.js.
+      - Keep low-level pitch/audio detection in src/utils/micUtils.js.
+      - Keep persistence logic in src/hooks/useHistory.js and src/utils/recordUtils.js.
+      - Keep UI components presentational when possible.
+
+  microphone_detection:
+    rules:
+      - Use pitchfinder YIN in src/utils/micUtils.js for pitch estimation.
+      - Keep natural-note mapping (A-G only) compatible with current gameplay.
+      - Preserve debounce/cooldown behavior unless bugfix requires adjustment.
+      - Avoid audio feedback loops when mic is active.
+      - Prefer additive tuning via mic presets (strict/normal/piano) over hardcoded one-off tweaks.
+
+  testing:
+    commands:
+      - npm test -- --run
+      - npm run build
+    rules:
+      - Add or update tests for behavior changes in hooks/utils.
+      - Keep tests under tests/unit and tests/hooks.
+      - Do not introduce new test frameworks.
+
+  dependencies:
+    rules:
+      - Avoid adding dependencies unless there is a clear benefit.
+      - Reuse existing libraries first (React, VexFlow, pitchfinder).
+      - If adding a package, update package.json and keep scope small.
+
+  do_not:
+    - Do not rewrite large files when a small patch is sufficient.
+    - Do not change song data format in src/data/songs.js unless requested.
+    - Do not remove existing mic presets or keyboard controls without explicit request.
+    - Do not commit generated output directories (dist, node_modules).
