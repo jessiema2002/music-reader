@@ -1,30 +1,53 @@
 /**
- * Microphone pitch detection using the YIN algorithm via pitchfinder.
+ * Microphone pitch detection using the McLeod Pitch Method (MPM) via pitchfinder.
  * Only fires for natural notes (A B C D E F G) — sharps/flats are skipped
  * so the result always matches the on-screen piano keys.
+ *
+ * Why MPM instead of YIN:
+ *  - MPM uses normalised squared difference + peak-picking which handles the
+ *    rich harmonic spectrum of real acoustic pianos far better than YIN.
+ *  - YIN often locks onto a strong 2nd/3rd overtone; MPM's normalisation
+ *    keeps the fundamental dominant even when upper partials are louder.
+ *
+ * Additional real-piano improvements:
+ *  - Bandpass filter (high-pass + low-pass) tames overtones and room noise.
+ *  - Silence-gap tracking resets the same-note cooldown so repeated strikes
+ *    of the same key are detected reliably.
  */
-import { YIN } from 'pitchfinder'
+import { Macleod as MPM } from 'pitchfinder'
 
 const MIC_PRESETS = {
-  strict: { fftSize: 4096, yinThreshold: 0.1, rmsThreshold: 0.02, snapTolerance: 0.35 },
-  normal: { fftSize: 4096, yinThreshold: 0.2, rmsThreshold: 0.015, snapTolerance: 0.45 },
-  piano:  { fftSize: 8192, yinThreshold: 0.25, rmsThreshold: 0.01, snapTolerance: 0.5 },
+  strict: {
+    fftSize: 4096, mpmCutoff: 0.93, rmsThreshold: 0.012,
+    snapTolerance: 0.35, filterLow: 80, filterHigh: 2000,
+  },
+  normal: {
+    fftSize: 8192, mpmCutoff: 0.90, rmsThreshold: 0.006,
+    snapTolerance: 0.45, filterLow: 60, filterHigh: 2500,
+  },
+  piano: {
+    fftSize: 8192, mpmCutoff: 0.85, rmsThreshold: 0.004,
+    snapTolerance: 0.50, filterLow: 50, filterHigh: 2000,
+  },
 }
 
 let audioCtx = null
 let analyser = null
 let source = null
+let filterNodes = []         // high-pass & low-pass biquad filters
 let stream = null
 let rafId = null
 let lastFiredNote = null
 let lastFiredTime = 0
 let suppressUntil = 0        // timestamp until which all mic detection is suppressed
-const SAME_NOTE_COOLDOWN_MS = 1500  // same note won't fire again for 1.5s (covers piano sustain)
-const ANY_NOTE_COOLDOWN_MS = 100    // any note blocked for 100ms after a fire (handles attack transients)
-const STABLE_FRAMES = 3             // consecutive frames a note must hold before firing (~50ms at 60fps)
+const SAME_NOTE_COOLDOWN_MS = 700   // same note re-fire cooldown (reduced for real piano practice)
+const ANY_NOTE_COOLDOWN_MS = 80     // brief post-fire block (handles attack transients)
+const STABLE_FRAMES = 2             // consecutive frames a note must hold before firing (~33ms at 60fps)
+const SILENCE_GAP_FRAMES = 4        // ~66ms of silence resets same-note tracking
 let stableNote = null       // stores the full note object { name, octave }
 let stableCount = 0
-const DEBUG = false         // Set to true to see detection logs in console
+let silenceFrames = 0        // consecutive frames below RMS threshold
+const DEBUG = false          // Set to true to see detection logs in console
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -80,24 +103,58 @@ export async function startMicListening(onNote, onHeard, options = {}) {
     analyser = audioCtx.createAnalyser()
     analyser.fftSize = preset.fftSize
     source = audioCtx.createMediaStreamSource(stream)
-    source.connect(analyser)
+
+    // ── Bandpass filter chain ─────────────────────────────────────────────
+    // High-pass removes low-frequency room rumble / air-conditioning hum.
+    // Low-pass tames strong upper harmonics that make YIN latch onto an
+    // overtone instead of the fundamental — the #1 cause of missed notes
+    // on real acoustic pianos.
+    const highpass = audioCtx.createBiquadFilter()
+    highpass.type = 'highpass'
+    highpass.frequency.value = preset.filterLow
+    highpass.Q.value = 0.7
+
+    const lowpass = audioCtx.createBiquadFilter()
+    lowpass.type = 'lowpass'
+    lowpass.frequency.value = preset.filterHigh
+    lowpass.Q.value = 0.7
+
+    source.connect(highpass)
+    highpass.connect(lowpass)
+    lowpass.connect(analyser)
+    filterNodes = [highpass, lowpass]
 
     const buf = new Float32Array(analyser.fftSize)
-    // YIN detector — created once per audio context so sampleRate is baked in.
-    // threshold: cumulative mean normalised difference threshold (lower = stricter)
-    const yinDetect = YIN({ sampleRate: audioCtx.sampleRate, threshold: preset.yinThreshold })
+    // MPM detector — created once per audio context so sampleRate is baked in.
+    // cutoff: normalised peak threshold — higher = stricter (0-1)
+    const mpmDetect = MPM({ sampleRate: audioCtx.sampleRate, cutoff: preset.mpmCutoff })
 
     function loop() {
       analyser.getFloatTimeDomainData(buf)
-      // Skip YIN on silent frames for performance; null return means no pitch found
+      // Skip pitch detection on silent frames for performance
       const rms = getRms(buf)
-      const rawFreq = rms >= preset.rmsThreshold ? yinDetect(buf) : null
+      const rawFreq = rms >= preset.rmsThreshold ? mpmDetect(buf) : null
       const freq = rawFreq ?? -1
       const note = freq > 0 ? freqToNote(freq, preset.snapTolerance) : null
       const candidateName = note ? note.name : null
 
+      // ── Silence-gap tracking ──────────────────────────────────────────
+      // When we detect a gap of silence (e.g. between two strikes of the
+      // same key), reset lastFiredNote so the next note — even if identical —
+      // will fire immediately rather than being blocked by the same-note
+      // cooldown.  This is critical for real pianos where the player may
+      // repeat a note within < 1 second.
+      if (rms < preset.rmsThreshold * 1.5) {
+        silenceFrames++
+        if (silenceFrames >= SILENCE_GAP_FRAMES) {
+          lastFiredNote = null        // allow same note to fire again
+        }
+      } else {
+        silenceFrames = 0
+      }
+
       if (DEBUG && freq > 0) {
-        console.log(`[MIC] freq=${freq.toFixed(1)}Hz, note=${candidateName || 'null'}, stable=${stableNote?.name}:${stableCount}`)
+        console.log(`[MIC] freq=${freq.toFixed(1)}Hz rms=${rms.toFixed(4)} note=${candidateName || 'null'}, stable=${stableNote?.name}:${stableCount}, silence=${silenceFrames}`)
       }
 
       // Report what we're hearing to the UI
@@ -162,6 +219,8 @@ export function suppressMicListening(durationMs) {
 export function stopMicListening() {
   if (rafId)   { cancelAnimationFrame(rafId); rafId = null }
   if (source)  { source.disconnect(); source = null }
+  filterNodes.forEach(n => n.disconnect())
+  filterNodes = []
   analyser = null
   if (audioCtx) { audioCtx.close(); audioCtx = null }
   if (stream)  { stream.getTracks().forEach(t => t.stop()); stream = null }
@@ -170,4 +229,5 @@ export function stopMicListening() {
   suppressUntil = 0
   stableNote = null
   stableCount = 0
+  silenceFrames = 0
 }
