@@ -14,7 +14,7 @@
  */
 import { YIN } from 'pitchfinder'
 
-const MIC_PRESETS = {
+export const MIC_PRESETS = {
   strict: {
     fftSize: 4096, yinThreshold: 0.15, rmsThreshold: 0.012,
     snapTolerance: 0.35, filterLow: 80, filterHigh: 2000,
@@ -52,8 +52,11 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 /**
  * Convert frequency to nearest natural note (A-G), tolerant to slight sharp/flat drift.
  * This helps with real piano overtones where detectors may land on nearby accidentals.
+ * @param {number} freq  frequency in Hz
+ * @param {number} snapTolerance  max semitone distance to snap to a natural note
+ * @returns {{ name: string, octave: number } | null}
  */
-function freqToNote(freq, snapTolerance) {
+export function freqToNote(freq, snapTolerance) {
   if (freq < 27 || freq > 4200) return null
   const midiFloat = 12 * Math.log2(freq / 440) + 69
 
@@ -77,8 +80,11 @@ function freqToNote(freq, snapTolerance) {
   return { name, octave }
 }
 
-/** RMS energy check — skip the YIN call entirely on silent frames for performance. */
-function getRms(buf) {
+/** RMS energy check — skip the YIN call entirely on silent frames for performance.
+ * @param {Float32Array} buf  audio samples
+ * @returns {number}  RMS value
+ */
+export function getRms(buf) {
   let sum = 0
   for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
   return Math.sqrt(sum / buf.length)
