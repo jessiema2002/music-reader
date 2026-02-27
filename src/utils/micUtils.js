@@ -1,32 +1,30 @@
 /**
- * Microphone pitch detection using the McLeod Pitch Method (MPM) via pitchfinder.
+ * Microphone pitch detection using the YIN algorithm via pitchfinder.
  * Only fires for natural notes (A B C D E F G) — sharps/flats are skipped
  * so the result always matches the on-screen piano keys.
  *
- * Why MPM instead of YIN:
- *  - MPM uses normalised squared difference + peak-picking which handles the
- *    rich harmonic spectrum of real acoustic pianos far better than YIN.
- *  - YIN often locks onto a strong 2nd/3rd overtone; MPM's normalisation
- *    keeps the fundamental dominant even when upper partials are louder.
- *
- * Additional real-piano improvements:
- *  - Bandpass filter (high-pass + low-pass) tames overtones and room noise.
+ * Real-piano improvements:
+ *  - Bandpass filter (high-pass + low-pass) tames overtones and room noise
+ *    so YIN locks onto the fundamental rather than a dominant harmonic.
  *  - Silence-gap tracking resets the same-note cooldown so repeated strikes
  *    of the same key are detected reliably.
+ *  - Lower thresholds and faster response for acoustic piano practice.
+ *
+ * Note: pitchfinder's Macleod (MPM) implementation is broken, so we use YIN.
  */
-import { Macleod as MPM } from 'pitchfinder'
+import { YIN } from 'pitchfinder'
 
 const MIC_PRESETS = {
   strict: {
-    fftSize: 4096, mpmCutoff: 0.93, rmsThreshold: 0.012,
+    fftSize: 4096, yinThreshold: 0.15, rmsThreshold: 0.012,
     snapTolerance: 0.35, filterLow: 80, filterHigh: 2000,
   },
   normal: {
-    fftSize: 8192, mpmCutoff: 0.90, rmsThreshold: 0.006,
+    fftSize: 8192, yinThreshold: 0.25, rmsThreshold: 0.006,
     snapTolerance: 0.45, filterLow: 60, filterHigh: 2500,
   },
   piano: {
-    fftSize: 8192, mpmCutoff: 0.85, rmsThreshold: 0.004,
+    fftSize: 8192, yinThreshold: 0.30, rmsThreshold: 0.004,
     snapTolerance: 0.50, filterLow: 50, filterHigh: 2000,
   },
 }
@@ -125,15 +123,15 @@ export async function startMicListening(onNote, onHeard, options = {}) {
     filterNodes = [highpass, lowpass]
 
     const buf = new Float32Array(analyser.fftSize)
-    // MPM detector — created once per audio context so sampleRate is baked in.
-    // cutoff: normalised peak threshold — higher = stricter (0-1)
-    const mpmDetect = MPM({ sampleRate: audioCtx.sampleRate, cutoff: preset.mpmCutoff })
+    // YIN detector — created once per audio context so sampleRate is baked in.
+    // threshold: cumulative mean normalised difference threshold (lower = stricter)
+    const yinDetect = YIN({ sampleRate: audioCtx.sampleRate, threshold: preset.yinThreshold })
 
     function loop() {
       analyser.getFloatTimeDomainData(buf)
       // Skip pitch detection on silent frames for performance
       const rms = getRms(buf)
-      const rawFreq = rms >= preset.rmsThreshold ? mpmDetect(buf) : null
+      const rawFreq = rms >= preset.rmsThreshold ? yinDetect(buf) : null
       const freq = rawFreq ?? -1
       const note = freq > 0 ? freqToNote(freq, preset.snapTolerance) : null
       const candidateName = note ? note.name : null
