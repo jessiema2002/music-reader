@@ -150,13 +150,14 @@ describe('micUtils', () => {
       })
     })
 
-    // Critical fix: FFT size affects frequency resolution
-    describe('FFT size for frequency resolution', () => {
-      it('normal and piano modes use larger FFT for better low-note resolution', () => {
-        // 8192 samples at 44.1kHz = ~5.4 Hz resolution
-        // 4096 samples = ~10.8 Hz resolution (marginal for low notes)
-        expect(MIC_PRESETS.normal.fftSize).toBeGreaterThanOrEqual(8192)
-        expect(MIC_PRESETS.piano.fftSize).toBeGreaterThanOrEqual(8192)
+    // Buffer size for frequency resolution and response speed
+    describe('buffer size for pitch detection', () => {
+      it('all modes use adequate buffer size for pitch detection', () => {
+        // 2048 samples at 48kHz = ~42ms buffer — fast enough for piano transients
+        // while still providing adequate frequency resolution for notes above ~50 Hz
+        expect(MIC_PRESETS.strict.bufSize).toBeGreaterThanOrEqual(1024)
+        expect(MIC_PRESETS.normal.bufSize).toBeGreaterThanOrEqual(1024)
+        expect(MIC_PRESETS.piano.bufSize).toBeGreaterThanOrEqual(1024)
       })
     })
 
@@ -179,15 +180,22 @@ describe('micUtils', () => {
       })
     })
 
-    // YIN threshold affects sensitivity
-    describe('YIN threshold settings', () => {
-      it('piano mode is most permissive (highest threshold)', () => {
-        // Higher threshold = more permissive = more detections
-        expect(MIC_PRESETS.piano.yinThreshold).toBeGreaterThanOrEqual(MIC_PRESETS.normal.yinThreshold)
+    // Clarity threshold determines confidence required to accept a note
+    describe('clarity threshold settings', () => {
+      it('piano mode is most permissive (lowest clarity threshold)', () => {
+        // Lower clarity threshold = accept noisier detections = better for piano harmonics
+        expect(MIC_PRESETS.piano.clarityThreshold).toBeLessThanOrEqual(MIC_PRESETS.normal.clarityThreshold)
       })
 
-      it('strict mode is most strict (lowest threshold)', () => {
-        expect(MIC_PRESETS.strict.yinThreshold).toBeLessThanOrEqual(MIC_PRESETS.normal.yinThreshold)
+      it('strict mode requires highest clarity', () => {
+        expect(MIC_PRESETS.strict.clarityThreshold).toBeGreaterThanOrEqual(MIC_PRESETS.normal.clarityThreshold)
+      })
+
+      it('all modes have reasonable clarity thresholds (0.5-1.0)', () => {
+        Object.values(MIC_PRESETS).forEach(preset => {
+          expect(preset.clarityThreshold).toBeGreaterThanOrEqual(0.5)
+          expect(preset.clarityThreshold).toBeLessThanOrEqual(1.0)
+        })
       })
     })
 

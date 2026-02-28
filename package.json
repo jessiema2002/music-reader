@@ -10,7 +10,7 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
-    "pitchfinder": "^2.3.4",
+    "pitchy": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "vexflow": "^4.2.2"

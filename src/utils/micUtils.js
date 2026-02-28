@@ -1,31 +1,32 @@
 /**
- * Microphone pitch detection using the YIN algorithm via pitchfinder.
- * Only fires for natural notes (A B C D E F G) — sharps/flats are skipped
- * so the result always matches the on-screen piano keys.
+ * Microphone pitch detection using the **pitchy** library (autocorrelation).
  *
- * Real-piano improvements:
- *  - Bandpass filter (high-pass + low-pass) tames overtones and room noise
- *    so YIN locks onto the fundamental rather than a dominant harmonic.
- *  - Silence-gap tracking resets the same-note cooldown so repeated strikes
- *    of the same key are detected reliably.
- *  - Lower thresholds and faster response for acoustic piano practice.
+ * pitchy provides a clarity score (0-1) with every detection, which is far
+ * more reliable than YIN/pitchfinder for real instruments - especially piano
+ * where rich harmonics and fast decay confuse simpler algorithms.
  *
- * Note: pitchfinder's Macleod (MPM) implementation is broken, so we use YIN.
+ * Only fires for natural notes (A B C D E F G) - sharps/flats are snapped
+ * to the nearest natural so the result always matches the on-screen keys.
+ *
+ * Audio chain: mic -> highpass -> lowpass -> compressor -> analyser
  */
-import { YIN } from 'pitchfinder'
+import { PitchDetector } from 'pitchy'
 
 export const MIC_PRESETS = {
   strict: {
-    fftSize: 4096, yinThreshold: 0.15, rmsThreshold: 0.008,
+    bufSize: 2048, clarityThreshold: 0.90, rmsThreshold: 0.006,
     snapTolerance: 0.40, filterLow: 80, filterHigh: 2000,
+    useCompressor: false,
   },
   normal: {
-    fftSize: 8192, yinThreshold: 0.25, rmsThreshold: 0.004,
-    snapTolerance: 0.50, filterLow: 60, filterHigh: 2500,
+    bufSize: 2048, clarityThreshold: 0.80, rmsThreshold: 0.003,
+    snapTolerance: 0.50, filterLow: 55, filterHigh: 3000,
+    useCompressor: true,
   },
   piano: {
-    fftSize: 8192, yinThreshold: 0.30, rmsThreshold: 0.003,
-    snapTolerance: 0.55, filterLow: 50, filterHigh: 2000,
+    bufSize: 2048, clarityThreshold: 0.70, rmsThreshold: 0.002,
+    snapTolerance: 0.55, filterLow: 40, filterHigh: 2000,
+    useCompressor: true,
   },
 }
 
@@ -38,14 +39,14 @@ let rafId = null
 let lastFiredNote = null
 let lastFiredTime = 0
 let suppressUntil = 0        // timestamp until which all mic detection is suppressed
-const SAME_NOTE_COOLDOWN_MS = 600   // same note re-fire cooldown (reduced for real piano practice)
-const ANY_NOTE_COOLDOWN_MS = 60     // brief post-fire block (handles attack transients)
-const STABLE_FRAMES = 1             // consecutive frames a note must hold before firing (1 = immediate, faster response)
-const SILENCE_GAP_FRAMES = 3        // ~50ms of silence resets same-note tracking
+const SAME_NOTE_COOLDOWN_MS = 450   // same note re-fire cooldown
+const ANY_NOTE_COOLDOWN_MS = 40     // brief post-fire block (handles attack transients)
+const STABLE_FRAMES = 1             // fire immediately on first detection
+const SILENCE_GAP_FRAMES = 2        // ~33ms of silence resets same-note tracking
 let stableNote = null       // stores the full note object { name, octave }
 let stableCount = 0
 let silenceFrames = 0        // consecutive frames below RMS threshold
-const DEBUG = false          // Set to true to see detection logs in console
+const DEBUG = true           // Always-on debug logging — check browser console to diagnose mic issues
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -111,14 +112,12 @@ export async function startMicListening(onNote, onHeard, options = {}) {
     }
     console.log(`[MIC] AudioContext state: ${audioCtx.state}, sampleRate: ${audioCtx.sampleRate} Hz, mode: ${mode}`)
     analyser = audioCtx.createAnalyser()
-    analyser.fftSize = preset.fftSize
+    analyser.fftSize = preset.bufSize
     source = audioCtx.createMediaStreamSource(stream)
 
-    // ── Bandpass filter chain ─────────────────────────────────────────────
+    // ── Audio processing chain ────────────────────────────────────────────
     // High-pass removes low-frequency room rumble / air-conditioning hum.
-    // Low-pass tames strong upper harmonics that make YIN latch onto an
-    // overtone instead of the fundamental — the #1 cause of missed notes
-    // on real acoustic pianos.
+    // Low-pass tames strong upper harmonics.
     const highpass = audioCtx.createBiquadFilter()
     highpass.type = 'highpass'
     highpass.frequency.value = preset.filterLow
@@ -129,9 +128,29 @@ export async function startMicListening(onNote, onHeard, options = {}) {
     lowpass.frequency.value = preset.filterHigh
     lowpass.Q.value = 0.7
 
+    // Chain: source → highpass → lowpass → [compressor?] → analyser
     source.connect(highpass)
     highpass.connect(lowpass)
-    lowpass.connect(analyser)
+    let lastNode = lowpass
+
+    // ── Dynamics compressor (normal & piano modes) ──────────────────────
+    // Piano notes have a sharp percussive attack then fast decay.
+    // The compressor boosts the quieter sustained body of the note and
+    // tames the initial spike, giving the detector more usable frames.
+    if (preset.useCompressor) {
+      const compressor = audioCtx.createDynamicsCompressor()
+      compressor.threshold.value = -40   // start compressing at -40 dB
+      compressor.knee.value = 12         // soft knee
+      compressor.ratio.value = 8         // 8:1 compression — aggressive for pitch detection
+      compressor.attack.value = 0.002    // 2ms — catch the transient quickly
+      compressor.release.value = 0.15    // 150ms — hold gain up through the note body
+      lastNode.connect(compressor)
+      lastNode = compressor
+      filterNodes.push(compressor)
+    }
+
+    lastNode.connect(analyser)
+    filterNodes.push(highpass, lowpass)
 
     // Some browsers (especially Safari) won't process AnalyserNode data unless
     // the graph ultimately connects to the audio destination.
@@ -141,28 +160,34 @@ export async function startMicListening(onNote, onHeard, options = {}) {
     silentGain.gain.value = 0
     analyser.connect(silentGain)
     silentGain.connect(audioCtx.destination)
+    filterNodes.push(silentGain)
 
-    filterNodes = [highpass, lowpass, silentGain]
-
-    const buf = new Float32Array(analyser.fftSize)
-    // YIN detector — created once per audio context so sampleRate is baked in.
-    // threshold: cumulative mean normalised difference threshold (lower = stricter)
-    const yinDetect = YIN({ sampleRate: audioCtx.sampleRate, threshold: preset.yinThreshold })
-    let diagFrames = 0   // used to log the first few frames always (helps diagnose mic issues)
+    const buf = new Float32Array(preset.bufSize)
+    const detector = PitchDetector.forFloat32Array(preset.bufSize)
+    let diagFrames = 0
 
     function loop() {
       analyser.getFloatTimeDomainData(buf)
-      // Skip pitch detection on silent frames for performance
       const rms = getRms(buf)
-      // Always log the first 5 frames to confirm mic audio is flowing
-      if (diagFrames < 5) {
-        console.log(`[MIC] diag frame ${diagFrames}: rms=${rms.toFixed(5)} threshold=${preset.rmsThreshold} ctx=${audioCtx?.state}`)
+      if (diagFrames < 10) {
+        console.log(`[MIC] frame ${diagFrames}: rms=${rms.toFixed(5)} threshold=${preset.rmsThreshold} ctx=${audioCtx?.state}`)
         diagFrames++
       }
-      const rawFreq = rms >= preset.rmsThreshold ? yinDetect(buf) : null
-      const freq = rawFreq ?? -1
-      const note = freq > 0 ? freqToNote(freq, preset.snapTolerance) : null
-      const candidateName = note ? note.name : null
+
+      let freq = -1
+      let clarity = 0
+      let note = null
+      let candidateName = null
+
+      if (rms >= preset.rmsThreshold) {
+        const [pitch, cl] = detector.findPitch(buf, audioCtx.sampleRate)
+        freq = pitch
+        clarity = cl
+        if (freq > 0 && clarity >= preset.clarityThreshold) {
+          note = freqToNote(freq, preset.snapTolerance)
+          candidateName = note ? note.name : null
+        }
+      }
 
       // ── Silence-gap tracking ──────────────────────────────────────────
       // When we detect a gap of silence (e.g. between two strikes of the
@@ -179,8 +204,8 @@ export async function startMicListening(onNote, onHeard, options = {}) {
         silenceFrames = 0
       }
 
-      if (DEBUG && freq > 0) {
-        console.log(`[MIC] freq=${freq.toFixed(1)}Hz rms=${rms.toFixed(4)} note=${candidateName || 'null'}, stable=${stableNote?.name}:${stableCount}, silence=${silenceFrames}`)
+      if (DEBUG && rms >= preset.rmsThreshold) {
+        console.log(`[MIC] freq=${freq > 0 ? freq.toFixed(1) : '-'}Hz clarity=${clarity.toFixed(2)} rms=${rms.toFixed(4)} note=${candidateName || '(rejected)'} stable=${stableNote?.name || '-'}:${stableCount} lastFired=${lastFiredNote || '-'}`)
       }
 
       // Report what we're hearing to the UI
@@ -214,7 +239,7 @@ export async function startMicListening(onNote, onHeard, options = {}) {
         if (timeSinceLastFire < ANY_NOTE_COOLDOWN_MS) {
           // Brief post-fire block — handles pitch wobble on the attack of the next note
         } else if (!sameNote || timeSinceLastFire > SAME_NOTE_COOLDOWN_MS) {
-          if (DEBUG) console.log(`[MIC] 🎵 FIRE: ${stableNote.name}`)
+          if (DEBUG) console.log(`[MIC] FIRE: ${stableNote.name}${stableNote.octave} (clarity=${clarity.toFixed(2)})`)
           lastFiredNote = stableNote.name
           lastFiredTime = now
           onNote(stableNote.name, stableNote.octave)
