@@ -16,16 +16,16 @@ import { YIN } from 'pitchfinder'
 
 export const MIC_PRESETS = {
   strict: {
-    fftSize: 4096, yinThreshold: 0.15, rmsThreshold: 0.012,
-    snapTolerance: 0.35, filterLow: 80, filterHigh: 2000,
+    fftSize: 4096, yinThreshold: 0.15, rmsThreshold: 0.008,
+    snapTolerance: 0.40, filterLow: 80, filterHigh: 2000,
   },
   normal: {
-    fftSize: 8192, yinThreshold: 0.25, rmsThreshold: 0.006,
-    snapTolerance: 0.45, filterLow: 60, filterHigh: 2500,
+    fftSize: 8192, yinThreshold: 0.25, rmsThreshold: 0.004,
+    snapTolerance: 0.50, filterLow: 60, filterHigh: 2500,
   },
   piano: {
-    fftSize: 8192, yinThreshold: 0.30, rmsThreshold: 0.004,
-    snapTolerance: 0.50, filterLow: 50, filterHigh: 2000,
+    fftSize: 8192, yinThreshold: 0.30, rmsThreshold: 0.003,
+    snapTolerance: 0.55, filterLow: 50, filterHigh: 2000,
   },
 }
 
@@ -38,10 +38,10 @@ let rafId = null
 let lastFiredNote = null
 let lastFiredTime = 0
 let suppressUntil = 0        // timestamp until which all mic detection is suppressed
-const SAME_NOTE_COOLDOWN_MS = 700   // same note re-fire cooldown (reduced for real piano practice)
-const ANY_NOTE_COOLDOWN_MS = 80     // brief post-fire block (handles attack transients)
-const STABLE_FRAMES = 2             // consecutive frames a note must hold before firing (~33ms at 60fps)
-const SILENCE_GAP_FRAMES = 4        // ~66ms of silence resets same-note tracking
+const SAME_NOTE_COOLDOWN_MS = 600   // same note re-fire cooldown (reduced for real piano practice)
+const ANY_NOTE_COOLDOWN_MS = 60     // brief post-fire block (handles attack transients)
+const STABLE_FRAMES = 1             // consecutive frames a note must hold before firing (1 = immediate, faster response)
+const SILENCE_GAP_FRAMES = 3        // ~50ms of silence resets same-note tracking
 let stableNote = null       // stores the full note object { name, octave }
 let stableCount = 0
 let silenceFrames = 0        // consecutive frames below RMS threshold
@@ -104,6 +104,12 @@ export async function startMicListening(onNote, onHeard, options = {}) {
 
     stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
     audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    // Some browsers suspend AudioContext until explicitly resumed, even after a user gesture.
+    // This is the #1 cause of silent mic detection — always resume before processing.
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume()
+    }
+    console.log(`[MIC] AudioContext state: ${audioCtx.state}, sampleRate: ${audioCtx.sampleRate} Hz, mode: ${mode}`)
     analyser = audioCtx.createAnalyser()
     analyser.fftSize = preset.fftSize
     source = audioCtx.createMediaStreamSource(stream)
@@ -126,17 +132,33 @@ export async function startMicListening(onNote, onHeard, options = {}) {
     source.connect(highpass)
     highpass.connect(lowpass)
     lowpass.connect(analyser)
-    filterNodes = [highpass, lowpass]
+
+    // Some browsers (especially Safari) won't process AnalyserNode data unless
+    // the graph ultimately connects to the audio destination.
+    // A silent GainNode (gain=0) forces the graph to stay active without
+    // causing microphone feedback through the speakers.
+    const silentGain = audioCtx.createGain()
+    silentGain.gain.value = 0
+    analyser.connect(silentGain)
+    silentGain.connect(audioCtx.destination)
+
+    filterNodes = [highpass, lowpass, silentGain]
 
     const buf = new Float32Array(analyser.fftSize)
     // YIN detector — created once per audio context so sampleRate is baked in.
     // threshold: cumulative mean normalised difference threshold (lower = stricter)
     const yinDetect = YIN({ sampleRate: audioCtx.sampleRate, threshold: preset.yinThreshold })
+    let diagFrames = 0   // used to log the first few frames always (helps diagnose mic issues)
 
     function loop() {
       analyser.getFloatTimeDomainData(buf)
       // Skip pitch detection on silent frames for performance
       const rms = getRms(buf)
+      // Always log the first 5 frames to confirm mic audio is flowing
+      if (diagFrames < 5) {
+        console.log(`[MIC] diag frame ${diagFrames}: rms=${rms.toFixed(5)} threshold=${preset.rmsThreshold} ctx=${audioCtx?.state}`)
+        diagFrames++
+      }
       const rawFreq = rms >= preset.rmsThreshold ? yinDetect(buf) : null
       const freq = rawFreq ?? -1
       const note = freq > 0 ? freqToNote(freq, preset.snapTolerance) : null
