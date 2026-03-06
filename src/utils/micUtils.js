@@ -19,12 +19,12 @@ export const MIC_PRESETS = {
     useCompressor: false,
   },
   normal: {
-    bufSize: 2048, clarityThreshold: 0.80, rmsThreshold: 0.003,
+    bufSize: 4096, clarityThreshold: 0.80, rmsThreshold: 0.003,
     snapTolerance: 0.50, filterLow: 55, filterHigh: 3000,
     useCompressor: true,
   },
   piano: {
-    bufSize: 2048, clarityThreshold: 0.70, rmsThreshold: 0.002,
+    bufSize: 4096, clarityThreshold: 0.70, rmsThreshold: 0.002,
     snapTolerance: 0.55, filterLow: 40, filterHigh: 2000,
     useCompressor: true,
   },
@@ -39,13 +39,15 @@ let rafId = null
 let lastFiredNote = null
 let lastFiredTime = 0
 let suppressUntil = 0        // timestamp until which all mic detection is suppressed
-const SAME_NOTE_COOLDOWN_MS = 450   // same note re-fire cooldown
+const SAME_NOTE_COOLDOWN_MS = 280   // same note re-fire cooldown
 const ANY_NOTE_COOLDOWN_MS = 40     // brief post-fire block (handles attack transients)
 const STABLE_FRAMES = 1             // fire immediately on first detection
 const SILENCE_GAP_FRAMES = 2        // ~33ms of silence resets same-note tracking
+const ONSET_RMS_RATIO = 3.0         // RMS spike ratio to detect a new key strike
 let stableNote = null       // stores the full note object { name, octave }
 let stableCount = 0
 let silenceFrames = 0        // consecutive frames below RMS threshold
+let prevRms = 0              // previous frame RMS for onset detection
 const DEBUG = true           // Always-on debug logging — check browser console to diagnose mic issues
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -189,20 +191,32 @@ export async function startMicListening(onNote, onHeard, options = {}) {
         }
       }
 
-      // ── Silence-gap tracking ──────────────────────────────────────────
+      // ── Silence-gap & onset tracking ────────────────────────────────────
       // When we detect a gap of silence (e.g. between two strikes of the
       // same key), reset lastFiredNote so the next note — even if identical —
       // will fire immediately rather than being blocked by the same-note
       // cooldown.  This is critical for real pianos where the player may
       // repeat a note within < 1 second.
-      if (rms < preset.rmsThreshold * 1.5) {
+      //
+      // Also detect onset spikes: a sharp RMS increase indicates a new key
+      // strike even without silence in between (piano sustain pedal, fast
+      // repeated notes, or the compressor keeping the tail loud).
+      if (rms < preset.rmsThreshold * 3) {
         silenceFrames++
         if (silenceFrames >= SILENCE_GAP_FRAMES) {
           lastFiredNote = null        // allow same note to fire again
         }
       } else {
+        // Onset detection: if RMS jumped sharply, treat it as a new strike
+        if (prevRms > 0 && rms > prevRms * ONSET_RMS_RATIO) {
+          lastFiredNote = null
+          stableNote = null
+          stableCount = 0
+          if (DEBUG) console.log(`[MIC] ONSET detected: rms ${prevRms.toFixed(4)} → ${rms.toFixed(4)}`)
+        }
         silenceFrames = 0
       }
+      prevRms = rms
 
       if (DEBUG && rms >= preset.rmsThreshold) {
         console.log(`[MIC] freq=${freq > 0 ? freq.toFixed(1) : '-'}Hz clarity=${clarity.toFixed(2)} rms=${rms.toFixed(4)} note=${candidateName || '(rejected)'} stable=${stableNote?.name || '-'}:${stableCount} lastFired=${lastFiredNote || '-'}`)
@@ -281,4 +295,5 @@ export function stopMicListening() {
   stableNote = null
   stableCount = 0
   silenceFrames = 0
+  prevRms = 0
 }
