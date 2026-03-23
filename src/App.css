@@ -529,6 +529,14 @@
   background: rgba(124, 58, 237, 0.1);
 }
 
+/* ===== Footer ===== */
+.app-footer {
+  margin-top: 2rem;
+  font-size: 0.72rem;
+  color: #475569;
+  letter-spacing: 0.03em;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .app-body {

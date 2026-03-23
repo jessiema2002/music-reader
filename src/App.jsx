@@ -95,6 +95,10 @@ export default function App() {
           <HistoryPanel records={records} />
         </aside>
       </div>
+
+      <footer className="app-footer">
+        Last deployed: {new Date(__BUILD_TIME__).toLocaleString()}
+      </footer>
     </div>
   )
 }
