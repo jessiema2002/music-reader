@@ -40,8 +40,12 @@ let lastFiredNote = null
 let lastFiredTime = 0
 let suppressUntil = 0        // timestamp until which all mic detection is suppressed
 const SAME_NOTE_COOLDOWN_MS = 280   // same note re-fire cooldown
-const ANY_NOTE_COOLDOWN_MS = 40     // brief post-fire block (handles attack transients)
-const STABLE_FRAMES = 1             // fire immediately on first detection
+const ANY_NOTE_COOLDOWN_MS = 150    // post-fire block — covers the window where piano
+                                    // overtones (2nd/3rd/5th harmonics) are strong enough
+                                    // to cause spurious detections of octave/fifth above
+const STABLE_FRAMES = 3             // require 3 consecutive frames (~50ms) of the same note
+                                    // before firing — lets the attack transient settle so the
+                                    // fundamental dominates over overtones
 const SILENCE_GAP_FRAMES = 2        // ~33ms of silence resets same-note tracking
 const ONSET_RMS_RATIO = 3.0         // RMS spike ratio to detect a new key strike
 let stableNote = null       // stores the full note object { name, octave }
