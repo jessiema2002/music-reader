@@ -37,21 +37,15 @@ let filterNodes = []         // high-pass & low-pass biquad filters
 let stream = null
 let rafId = null
 let lastFiredNote = null
-let lastFiredTime = 0
 let suppressUntil = 0        // timestamp until which all mic detection is suppressed
-const SAME_NOTE_COOLDOWN_MS = 280   // same note re-fire cooldown
-const ANY_NOTE_COOLDOWN_MS = 150    // post-fire block — covers the window where piano
-                                    // overtones (2nd/3rd/5th harmonics) are strong enough
-                                    // to cause spurious detections of octave/fifth above
 const STABLE_FRAMES = 3             // require 3 consecutive frames (~50ms) of the same note
-                                    // before firing — lets the attack transient settle so the
-                                    // fundamental dominates over overtones
 const SILENCE_GAP_FRAMES = 2        // ~33ms of silence resets same-note tracking
 const ONSET_RMS_RATIO = 3.0         // RMS spike ratio to detect a new key strike
 let stableNote = null       // stores the full note object { name, octave }
 let stableCount = 0
 let silenceFrames = 0        // consecutive frames below RMS threshold
 let prevRms = 0              // previous frame RMS for onset detection
+let waitingForOnset = false  // after firing, block all detection until a new key strike
 const DEBUG = true           // Always-on debug logging — check browser console to diagnose mic issues
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -209,6 +203,10 @@ export async function startMicListening(onNote, onHeard, options = {}) {
         silenceFrames++
         if (silenceFrames >= SILENCE_GAP_FRAMES) {
           lastFiredNote = null        // allow same note to fire again
+          if (waitingForOnset) {
+            waitingForOnset = false
+            if (DEBUG) console.log('[MIC] UNLOCK (silence gap)')
+          }
         }
       } else {
         // Onset detection: if RMS jumped sharply, treat it as a new strike
@@ -216,6 +214,7 @@ export async function startMicListening(onNote, onHeard, options = {}) {
           lastFiredNote = null
           stableNote = null
           stableCount = 0
+          waitingForOnset = false
           if (DEBUG) console.log(`[MIC] ONSET detected: rms ${prevRms.toFixed(4)} → ${rms.toFixed(4)}`)
         }
         silenceFrames = 0
@@ -250,20 +249,13 @@ export async function startMicListening(onNote, onHeard, options = {}) {
         return
       }
 
-      if (stableCount >= STABLE_FRAMES && stableNote) {
-        const timeSinceLastFire = now - lastFiredTime
-        const sameNote = stableNote.name === lastFiredNote
-        
-        if (timeSinceLastFire < ANY_NOTE_COOLDOWN_MS) {
-          // Brief post-fire block — handles pitch wobble on the attack of the next note
-        } else if (!sameNote || timeSinceLastFire > SAME_NOTE_COOLDOWN_MS) {
-          if (DEBUG) console.log(`[MIC] FIRE: ${stableNote.name}${stableNote.octave} (clarity=${clarity.toFixed(2)})`)
-          lastFiredNote = stableNote.name
-          lastFiredTime = now
-          onNote(stableNote.name, stableNote.octave)
-          stableNote = null
-          stableCount = 0
-        }
+      if (stableCount >= STABLE_FRAMES && stableNote && !waitingForOnset) {
+        if (DEBUG) console.log(`[MIC] FIRE: ${stableNote.name}${stableNote.octave} (clarity=${clarity.toFixed(2)})`)
+        lastFiredNote = stableNote.name
+        waitingForOnset = true   // block until next key strike
+        onNote(stableNote.name, stableNote.octave)
+        stableNote = null
+        stableCount = 0
       }
       rafId = requestAnimationFrame(loop)
     }
@@ -294,10 +286,10 @@ export function stopMicListening() {
   if (audioCtx) { audioCtx.close(); audioCtx = null }
   if (stream)  { stream.getTracks().forEach(t => t.stop()); stream = null }
   lastFiredNote = null
-  lastFiredTime = 0
   suppressUntil = 0
   stableNote = null
   stableCount = 0
   silenceFrames = 0
   prevRms = 0
+  waitingForOnset = false
 }
