@@ -12,7 +12,7 @@ export default function StaffCard({
 
   return (
     <div className="card staff-card">
-      <div className="card-label">{label}</div>
+      <h2 className="card-label">{label}</h2>
       <StaffDisplay
         key={windowStart}
         song={windowNotes}
@@ -20,11 +20,14 @@ export default function StaffCard({
         results={windowResults}
         clef={clef}
       />
-      {feedbackMsg && (
-        <div className={`feedback-message feedback-${feedbackMsg.type}`}>
-          {feedbackMsg.text}
-        </div>
-      )}
+      <div
+        className={`feedback-message ${feedbackMsg ? `feedback-${feedbackMsg.type}` : ''}`}
+        role="status"
+        aria-live="assertive"
+        aria-atomic="true"
+      >
+        {feedbackMsg ? feedbackMsg.text : ''}
+      </div>
     </div>
   )
 }

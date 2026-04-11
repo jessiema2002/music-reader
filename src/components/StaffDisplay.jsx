@@ -68,9 +68,17 @@ export default function StaffDisplay({ song, currentIndex, results, clef = 'treb
     voice2.draw(context, stave2)
   }, [song, currentIndex, results, clef])
 
+  const noteNames = song ? song.map(n => n.note).join(', ') : ''
+  const currentNote = song && song[currentIndex] ? song[currentIndex].note : ''
+
   return (
     <div className="staff-wrapper">
-      <div ref={containerRef} className="staff-container" />
+      <div
+        ref={containerRef}
+        className="staff-container"
+        role="img"
+        aria-label={`${clef} clef staff showing notes: ${noteNames}. Current note: ${currentNote} (${currentIndex + 1} of ${song?.length || 0})`}
+      />
     </div>
   )
 }

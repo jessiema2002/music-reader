@@ -14,7 +14,7 @@ describe('SongPicker', () => {
       <SongPicker songs={mockSongs} selectedId={null} onSelect={vi.fn()} onRandom={vi.fn()} />
     )
 
-    expect(screen.getByText('🎲 Random')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Random/ })).toBeInTheDocument()
   })
 
   it('renders all songs', () => {
@@ -33,7 +33,7 @@ describe('SongPicker', () => {
       <SongPicker songs={mockSongs} selectedId={null} onSelect={vi.fn()} onRandom={onRandom} />
     )
 
-    fireEvent.click(screen.getByText('🎲 Random'))
+    fireEvent.click(screen.getByRole('button', { name: /Random/ }))
     expect(onRandom).toHaveBeenCalled()
   })
 
@@ -52,7 +52,7 @@ describe('SongPicker', () => {
       <SongPicker songs={mockSongs} selectedId={null} onSelect={vi.fn()} onRandom={vi.fn()} />
     )
 
-    const randomBtn = screen.getByText('🎲 Random')
+    const randomBtn = screen.getByRole('button', { name: /Random/ })
     expect(randomBtn).toHaveClass('song-btn-active')
   })
 
@@ -70,7 +70,7 @@ describe('SongPicker', () => {
       <SongPicker songs={mockSongs} selectedId="mary" onSelect={vi.fn()} onRandom={vi.fn()} />
     )
 
-    const randomBtn = screen.getByText('🎲 Random')
+    const randomBtn = screen.getByRole('button', { name: /Random/ })
     expect(randomBtn).not.toHaveClass('song-btn-active')
   })
 

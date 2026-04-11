@@ -145,6 +145,8 @@ export function useSongGame(onSongComplete, micActiveRef) {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return
+      const tag = e.target.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       const key = e.key.toUpperCase()
       if (key.length === 1 && 'ABCDEFG'.includes(key)) handleAnswer(key)
     }

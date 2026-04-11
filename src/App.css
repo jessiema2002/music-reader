@@ -1,3 +1,32 @@
+/* ===== Utility ===== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Focus indicators ===== */
+.clef-btn:focus-visible,
+.song-btn:focus-visible,
+.mic-btn:focus-visible,
+.mic-mode-select:focus-visible,
+.new-song-btn:focus-visible,
+.history-more-btn:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+svg [role="button"]:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 1px;
+}
+
 /* ===== Layout ===== */
 .app {
   min-height: 100vh;
@@ -70,7 +99,7 @@
 }
 
 .song-btn {
-  padding: 0.3rem 0.75rem;
+  padding: 0.45rem 0.75rem;
   border-radius: 2rem;
   border: 1px solid #334155;
   background: #1e293b;
@@ -167,6 +196,10 @@
   animation: fadeIn 0.15s ease;
 }
 
+.feedback-message:empty {
+  display: none;
+}
+
 .feedback-correct {
   background: rgba(34, 197, 94, 0.15);
   color: #4ade80;
@@ -222,7 +255,7 @@
 }
 
 .mic-btn {
-  padding: 0.3rem 0.85rem;
+  padding: 0.45rem 0.85rem;
   border-radius: 2rem;
   border: 1px solid #334155;
   background: #1e293b;

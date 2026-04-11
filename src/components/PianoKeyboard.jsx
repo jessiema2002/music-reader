@@ -59,6 +59,9 @@ export default function PianoKeyboard({ onKeyPress, correctKey, incorrectKey, di
       whiteKeys.push(
         <rect
           key={`w-${octave}-${noteName}`}
+          role="button"
+          aria-label={`${noteName}${octave}`}
+          tabIndex={disabled ? -1 : 0}
           x={x}
           y={1}
           width={WHITE_KEY_WIDTH - 2}
@@ -69,6 +72,12 @@ export default function PianoKeyboard({ onKeyPress, correctKey, incorrectKey, di
           strokeWidth={1}
           style={{ cursor: disabled ? 'default' : 'pointer' }}
           onClick={() => !disabled && onKeyPress(noteName, octave)}
+          onKeyDown={(e) => {
+            if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+              e.preventDefault()
+              onKeyPress(noteName, octave)
+            }
+          }}
         />
       )
     })
@@ -80,6 +89,9 @@ export default function PianoKeyboard({ onKeyPress, correctKey, incorrectKey, di
       blackKeys.push(
         <rect
           key={`b-${octave}-${noteName}`}
+          role="button"
+          aria-label={`${noteName}${octave}`}
+          tabIndex={disabled ? -1 : 0}
           x={x}
           y={1}
           width={BLACK_KEY_WIDTH}
@@ -90,14 +102,22 @@ export default function PianoKeyboard({ onKeyPress, correctKey, incorrectKey, di
           strokeWidth={1}
           style={{ cursor: disabled ? 'default' : 'pointer' }}
           onClick={() => !disabled && onKeyPress(noteName, octave)}
+          onKeyDown={(e) => {
+            if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+              e.preventDefault()
+              onKeyPress(noteName, octave)
+            }
+          }}
         />
       )
     })
   })
 
   return (
-    <div className="piano-wrapper" style={{ opacity: disabled ? 0.6 : 1, pointerEvents: disabled ? 'none' : 'auto' }}>
+    <div className="piano-wrapper" aria-disabled={disabled || undefined} style={{ opacity: disabled ? 0.6 : 1, pointerEvents: disabled ? 'none' : 'auto' }}>
       <svg
+        role="group"
+        aria-label="Piano keyboard"
         width={svgWidth}
         height={svgHeight}
         style={{ display: 'block', maxWidth: '100%' }}

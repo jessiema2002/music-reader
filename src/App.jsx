@@ -23,18 +23,20 @@ export default function App() {
       <header className="app-header">
         <h1 className="app-title">Music Sight Reading</h1>
         <p className="app-subtitle">Read each note left to right — type A–G or click a piano key</p>
-        <div className="clef-toggle">
+        <div className="clef-toggle" role="group" aria-label="Clef selection">
           <button
             className={`clef-btn${game.clef === 'treble' ? ' clef-btn-active' : ''}`}
+            aria-pressed={game.clef === 'treble'}
             onClick={() => game.handleClefChange('treble')}
           >
-            🎵 Treble
+            <span aria-hidden="true">🎵 </span>Treble
           </button>
           <button
             className={`clef-btn${game.clef === 'bass' ? ' clef-btn-active' : ''}`}
+            aria-pressed={game.clef === 'bass'}
             onClick={() => game.handleClefChange('bass')}
           >
-            🎶 Bass
+            <span aria-hidden="true">🎶 </span>Bass
           </button>
         </div>
       </header>

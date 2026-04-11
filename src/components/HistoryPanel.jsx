@@ -13,7 +13,7 @@ export default function HistoryPanel({ records }) {
   return (
     <div className="history-panel">
       <div className="history-header">
-        <span className="history-title">Past Runs</span>
+        <h2 className="history-title">Past Runs</h2>
         {best && (
           <span className="history-best">
             Best: <span className="history-best-time">{formatTime(best.elapsedMs)}</span>
@@ -26,6 +26,7 @@ export default function HistoryPanel({ records }) {
       ) : (
         <>
           <table className="history-table">
+            <caption className="sr-only">Song completion history</caption>
             <thead>
               <tr>
                 <th>#</th>
@@ -45,7 +46,12 @@ export default function HistoryPanel({ records }) {
                     </td>
                     <td className="history-time">
                       {formatTime(r.elapsedMs)}
-                      {isBest && <span className="history-crown"> 👑</span>}
+                      {isBest && (
+                        <>
+                          <span className="history-crown" aria-hidden="true"> 👑</span>
+                          <span className="sr-only"> (Personal best)</span>
+                        </>
+                      )}
                     </td>
                     <td className="history-score">
                       {r.score}/{r.songLength}
@@ -57,7 +63,7 @@ export default function HistoryPanel({ records }) {
           </table>
 
           {records.length > 8 && (
-            <button className="history-more-btn" onClick={() => setExpanded((e) => !e)}>
+            <button className="history-more-btn" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)}>
               {expanded ? 'Show less' : `Show all ${records.length}`}
             </button>
           )}

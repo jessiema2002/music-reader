@@ -33,7 +33,7 @@ describe('SongResultCard', () => {
       <SongResultCard correctCount={8} songLength={8} finalMs={5000} onNewSong={vi.fn()} />
     )
 
-    expect(screen.getByText('Perfect! 🎵')).toBeInTheDocument()
+    expect(screen.getByText(/Perfect!/)).toBeInTheDocument()
   })
 
   it('shows missed notes count for single miss', () => {
